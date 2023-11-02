@@ -1,6 +1,6 @@
 use logger::Logger;
 use crate::db_core::query_error::QueryError;
-use crate::db_core::values::{Column, Expr, ToTypes, Types, Value};
+use crate::db_core::values::{Column, Expr, ExprEvaluator, ToTypes, Types, Value};
 
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -62,17 +62,16 @@ impl<'a > Database<'a > {
         ).await;
     }
 
-    pub async fn select(&mut self, table: usize, column_target: usize, mut condition: Expr) -> Result<Table, QueryError> {
+    pub async fn select(&mut self, table: usize, column_target: usize, condition: Vec<Expr>) -> Result<Table, QueryError> {
         let mut row_id = Vec::new();
 
         let target_table = self.get_table(table).await?;
 
         macro_rules! check {
-            ($values:expr, $condition:expr, $row_id:expr, $type_col:ident) => {
-                for (id, value) in $values.iter().enumerate() {
-                    $condition = $condition.set_column_value(Value::$type_col(value.clone()));
-                    let res = match $condition.evaluate_top() {
-                        Ok(val) => { val }
+            ($values:expr, $type_col:ident) => {
+                for (val_id, value) in $values.iter().enumerate() {
+                    let res = match ExprEvaluator::evaluate(condition.clone(), Value::$type_col(value.clone())){
+                        Ok(val) => val,
                         Err(err) => {
                             match err {
                                 QueryError::TypeMismatch => {
@@ -93,10 +92,10 @@ impl<'a > Database<'a > {
                                         format!("select on table {}, column {}: no operation", table, column_target)
                                     ).await;
                                 }
-                                QueryError::ColumnValueNotSet => {
+                                QueryError::CellValueNotSet => {
                                     self.logger.error(
-                                        "Column Value Not Set".to_string(),
-                                        format!("select on table {}, column {}: column value not set", table, column_target)
+                                        "Cell Value Not Set".to_string(),
+                                        format!("select on table {}, column {}: cell value not set", table, column_target)
                                     ).await;
                                 }
                                 QueryError::TableNotFound => {
@@ -111,13 +110,19 @@ impl<'a > Database<'a > {
                                         format!("select on table {}, column {}: size mismatch", table, column_target)
                                     ).await;
                                 }
+                                QueryError::StackUnderflow => {
+                                    self.logger.error(
+                                        "Stack Underflow".to_string(),
+                                        format!("select on table {}, column {}: stack underflow", table, column_target)
+                                    ).await;
+                                }
                             }
 
                             return Err(err);
                         }
                     };
-                    if let Value::Bool(true) = condition.evaluate_top()? {
-                        $row_id.push(id);
+                    if let Value::Bool(true) = res {
+                        row_id.push(val_id);
                     }
                 }
             };
@@ -127,16 +132,16 @@ impl<'a > Database<'a > {
             Some(column) => {
                 match column {
                     Column::Int(values) => {
-                        check!(values, condition, row_id, Int);
+                        check!(values, Int);
                     }
                     Column::Float(values) => {
-                        check!(values, condition, row_id, Float);
+                        check!(values, Float);
                     }
                     Column::String(values) => {
-                        check!(values, condition, row_id, String);
+                        check!(values, String);
                     }
                     Column::Bool(values) => {
-                        check!(values, condition, row_id, Bool);
+                        check!(values, Bool);
                     }
                 }
             }

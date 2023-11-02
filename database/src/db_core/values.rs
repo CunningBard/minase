@@ -3,211 +3,236 @@ use crate::db_core::query_error::QueryError;
 #[derive(Clone, Debug)]
 pub enum Expr {
     Value(Value),
-    Column,
-    And(Box<Expr>, Box<Expr>),
-    Or(Box<Expr>, Box<Expr>),
-    Not(Box<Expr>),
-    Eq(Box<Expr>, Box<Expr>),
-    Gt(Box<Expr>, Box<Expr>),
-    Lt(Box<Expr>, Box<Expr>),
-    GtEq(Box<Expr>, Box<Expr>),
-    LtEq(Box<Expr>, Box<Expr>),
-    Neq(Box<Expr>, Box<Expr>),
+    Cell,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Gt,
+    Lt,
+    GtEq,
+    LtEq,
+    Eq,
+    Neq,
+    Not
 }
 
+pub struct ExprEvaluator {}
 
-macro_rules! evaluate {
-    (4, $lhs:expr, $rhs:expr, $op:tt) => {
-        match ($lhs, $rhs) {
-            (Value::Int(lhs), Value::Int(rhs)) => {
-                Ok(Value::Bool(lhs $op rhs))
-            }
-            (Value::Float(lhs), Value::Float(rhs)) => {
-                Ok(Value::Bool(lhs $op rhs))
-            }
-            (Value::String(lhs), Value::String(rhs)) => {
-                Ok(Value::Bool(lhs $op rhs))
-            }
-            (Value::Bool(lhs), Value::Bool(rhs)) => {
-                Ok(Value::Bool(lhs $op rhs))
-            }
-            _ => {
-                Err(QueryError::TypeMismatch)
-            }
-        }
-    };
-    (1, $lhs:expr, $rhs:expr, $op:tt) => {
-        match ($lhs, $rhs) {
-            (Value::Bool(lhs), Value::Bool(rhs)) => {
-                Ok(Value::Bool(lhs $op rhs))
-            }
-            _ => {
-                Err(QueryError::TypeMismatch)
-            }
-        }
-    };
-    (bool, $val:expr, $op:tt) => {
-        match $val {
-            Value::Bool(val) => {
-                Ok(Value::Bool($op val))
-            }
-            _ => {
-                Err(QueryError::TypeMismatch)
-            }
-        }
-    }
-}
+impl ExprEvaluator {
+    pub fn evaluate(query: Vec<Expr>, value: Value) -> Result<Value, QueryError>{
+        let mut stack = Vec::new();
 
-impl Expr {
-    pub fn set_column_value(self, value: Value) -> Self {
-        macro_rules! convert {
-            ($type_given:ident, $lhs:expr, $rhs:expr) => {
-                Expr::$type_given(
-                    Box::new($lhs.set_column_value(value.clone())),
-                    Box::new($rhs.set_column_value(value))
-                )
+        macro_rules! operation {
+            (4, $left:expr, $right:expr, $op:tt) => {
+                // Value::Bool because the operation that uses this are comparison operators or equality operators
+                match ($left, $right) {
+                    (Value::Int(left), Value::Int(right)) => {
+                        stack.push(Value::Bool(left $op right));
+                    }
+                    (Value::Float(left), Value::Float(right)) => {
+                        stack.push(Value::Bool(left $op right));
+                    }
+                    (Value::String(left), Value::String(right)) => {
+                        stack.push(Value::Bool(left $op right));
+                    }
+                    (Value::Bool(left), Value::Bool(right)) => {
+                        stack.push(Value::Bool(left $op right));
+                    }
+                    _ => {
+                        return Err(QueryError::TypeMismatch);
+                    }
+                }
+            };
+
+            (3, $left:expr, $right:expr, $op:tt) => {
+                match ($left, $right) {
+                    (Value::Int(left), Value::Int(right)) => {
+                        stack.push(Value::Int(left $op right));
+                    }
+                    (Value::Float(left), Value::Float(right)) => {
+                        stack.push(Value::Float(left $op right));
+                    }
+                    (Value::String(left), Value::String(right)) => {
+                        stack.push(Value::String(left $op &right));
+                    }
+                    _ => {
+                        return Err(QueryError::TypeMismatch);
+                    }
+                }
+            };
+
+            (2, resp, $left:expr, $right:expr, $op:tt) => {
+                match ($left, $right) {
+                    (Value::Int(left), Value::Int(right)) => {
+                        stack.push(Value::Int(left $op right));
+                    }
+                    (Value::Float(left), Value::Float(right)) => {
+                        stack.push(Value::Float(left $op right));
+                    }
+                    _ => {
+                        return Err(QueryError::TypeMismatch);
+                    }
+                }
+            };
+            (2, bool, $left:expr, $right:expr, $op:tt) => {
+                match ($left, $right) {
+                    (Value::Int(left), Value::Int(right)) => {
+                        stack.push(Value::Bool(left $op right));
+                    }
+                    (Value::Float(left), Value::Float(right)) => {
+                        stack.push(Value::Bool(left $op right));
+                    }
+                    _ => {
+                        return Err(QueryError::TypeMismatch);
+                    }
+                }
+            };
+
+            (1, $left:expr, $right:expr, $op:tt) => {
+                match ($left, $right) {
+                    (Value::Int(left), Value::Int(right)) => {
+                        stack.push(Value::Int(left $op right));
+                    }
+                    _ => {
+                        return Err(QueryError::TypeMismatch);
+                    }
+                }
             };
         }
 
-        match self {
-            Expr::Column => {
-                Expr::Value(value)
+        let query: Vec<Expr> = query.into_iter().map(
+            |e| {
+                match e {
+                    Expr::Cell => {
+                        Expr::Value(value.clone())
+                    }
+                    expr=> { expr }
+                }
+            }
+        ).collect();
 
-            }
-            Expr::And(lhs, rhs) => {
-                convert!(And, lhs, rhs)
-            }
-            Expr::Or(lhs, rhs) => {
-                convert!(Or, lhs, rhs)
-            }
-            Expr::Not(lhs) => {
-                Expr::Not(Box::new(lhs.set_column_value(value)))
-            }
-            Expr::Eq(lhs, rhs) => {
-                convert!(Eq, lhs, rhs)
-            }
-            Expr::Gt(lhs, rhs) => {
-                convert!(Gt, lhs, rhs)
-            }
+        for part in query {
+            match part {
+                Expr::Value(val) => {
+                    stack.push(val);
+                }
+                Expr::Cell => {
+                    return Err(QueryError::CellValueNotSet);
+                }
+                Expr::Add => {
+                    if stack.len() < 2 {
+                        return Err(QueryError::StackUnderflow);
+                    }
 
-            Expr::Value(..) => {
-                self
-            }
-            Expr::Lt(lhs, rhs) => {
-                convert!(Lt, lhs, rhs)
-            }
-            Expr::GtEq(lhs, rhs) => {
-                convert!(GtEq, lhs, rhs)
-            }
-            Expr::LtEq(lhs, rhs) => {
-                convert!(LtEq, lhs, rhs)
-            }
-            Expr::Neq(lhs, rhs) => {
-                convert!(Neq, lhs, rhs)
+                    let right = stack.pop().unwrap();
+                    let left = stack.pop().unwrap();
+                    operation!(3, left, right, +);
+                }
+                Expr::Sub => {
+                    if stack.len() < 2 {
+                        return Err(QueryError::StackUnderflow);
+                    }
+
+                    let right = stack.pop().unwrap();
+                    let left = stack.pop().unwrap();
+                    operation!(2, resp, left, right, -);
+                }
+                Expr::Mul => {
+                    if stack.len() < 2 {
+                        return Err(QueryError::StackUnderflow);
+                    }
+
+                    let right = stack.pop().unwrap();
+                    let left = stack.pop().unwrap();
+                    operation!(2, resp, left, right, *);
+                }
+                Expr::Div => {
+                    if stack.len() < 2 {
+                        return Err(QueryError::StackUnderflow);
+                    }
+
+                    let right = stack.pop().unwrap();
+                    let left = stack.pop().unwrap();
+                    operation!(2, resp, left, right, /);
+                }
+                Expr::Gt => {
+                    if stack.len() < 2 {
+                        return Err(QueryError::StackUnderflow);
+                    }
+
+                    let right = stack.pop().unwrap();
+                    let left = stack.pop().unwrap();
+                    operation!(2, bool, left, right, >);
+                }
+                Expr::Lt => {
+                    if stack.len() < 2 {
+                        return Err(QueryError::StackUnderflow);
+                    }
+
+                    let right = stack.pop().unwrap();
+                    let left = stack.pop().unwrap();
+                    operation!(2, bool, left, right, <);
+                }
+                Expr::GtEq => {
+                    if stack.len() < 2 {
+                        return Err(QueryError::StackUnderflow);
+                    }
+
+                    let right = stack.pop().unwrap();
+                    let left = stack.pop().unwrap();
+                    operation!(2, bool, left, right, >=);
+                }
+                Expr::LtEq => {
+                    if stack.len() < 2 {
+                        return Err(QueryError::StackUnderflow);
+                    }
+
+                    let right = stack.pop().unwrap();
+                    let left = stack.pop().unwrap();
+                    operation!(2, bool, left, right, <=);
+                }
+                Expr::Eq => {
+                    if stack.len() < 2 {
+                        return Err(QueryError::StackUnderflow);
+                    }
+
+                    let right = stack.pop().unwrap();
+                    let left = stack.pop().unwrap();
+                    operation!(4, left, right, ==);
+                }
+                Expr::Neq => {
+                    if stack.len() < 2 {
+                        return Err(QueryError::StackUnderflow);
+                    }
+
+                    let right = stack.pop().unwrap();
+                    let left = stack.pop().unwrap();
+                    operation!(4, left, right, !=);
+                }
+                Expr::Not => {
+                    if stack.len() < 1 {
+                        return Err(QueryError::StackUnderflow);
+                    }
+
+                    let right = stack.pop().unwrap();
+
+                    match right {
+                        Value::Bool(val) => {
+                            stack.push(Value::Bool(!val));
+                        }
+                        _ => {
+                            return Err(QueryError::TypeMismatch);
+                        }
+                    }
+                }
             }
         }
-    }
 
-    fn evaluate_non_top(&mut self) -> Result<Value, QueryError>{
-        match self {
-            Expr::Value(val) => {
-                Ok(val.clone())
-            }
-            Expr::Column => {
-                Err(QueryError::ColumnValueNotSet)
-            }
-            Expr::And(lhs, rhs) => {
-                let lhs = lhs.evaluate_non_top()?;
-                let rhs = rhs.evaluate_non_top()?;
-
-                evaluate!(1, lhs, rhs, &&)
-            }
-            Expr::Or(lhs, rhs) => {
-                let lhs = lhs.evaluate_non_top()?;
-                let rhs = rhs.evaluate_non_top()?;
-
-                evaluate!(1, lhs, rhs, ||)
-            }
-            Expr::Not(val) => {
-                let val = val.evaluate_non_top()?;
-
-                evaluate!(bool, val, !)
-            }
-            Expr::Eq(lhs, rhs) => {
-                let lhs = lhs.evaluate_non_top()?;
-                let rhs = rhs.evaluate_non_top()?;
-
-                evaluate!(4, lhs, rhs, ==)
-            }
-            Expr::Gt(lhs, rhs) => {
-                let lhs = lhs.evaluate_non_top()?;
-                let rhs = rhs.evaluate_non_top()?;
-
-                evaluate!(4, lhs, rhs, >)
-            }
-            Expr::Lt(lhs, rhs) => {
-                let lhs = lhs.evaluate_non_top()?;
-                let rhs = rhs.evaluate_non_top()?;
-
-                evaluate!(4, lhs, rhs, <)
-            }
-            Expr::GtEq(lhs, rhs) => {
-                let lhs = lhs.evaluate_non_top()?;
-                let rhs = rhs.evaluate_non_top()?;
-
-                evaluate!(4, lhs, rhs, >=)
-            }
-            Expr::LtEq(lhs, rhs) => {
-                let lhs = lhs.evaluate_non_top()?;
-                let rhs = rhs.evaluate_non_top()?;
-
-                evaluate!(4, lhs, rhs, <=)
-            }
-            Expr::Neq(lhs, rhs) => {
-                let lhs = lhs.evaluate_non_top()?;
-                let rhs = rhs.evaluate_non_top()?;
-
-
-                evaluate!(4, lhs, rhs, !=)
-            }
-        }
-    }
-
-    pub fn evaluate_top(&mut self) -> Result<Value, QueryError>{
-        match self {
-            Expr::Value(..) => {
-                Err(QueryError::NoOperation)
-            }
-            Expr::Column => {
-                Err(QueryError::NoOperation)
-            }
-            Expr::And(..) => {
-                self.evaluate_non_top()
-            }
-            Expr::Or(..) => {
-                self.evaluate_non_top()
-            }
-            Expr::Not(..) => {
-                self.evaluate_non_top()
-            }
-            Expr::Eq(..) => {
-                self.evaluate_non_top()
-            }
-            Expr::Gt(..) => {
-                self.evaluate_non_top()
-            }
-            Expr::Lt(..) => {
-                self.evaluate_non_top()
-            }
-            Expr::GtEq(..) => {
-                self.evaluate_non_top()
-            }
-            Expr::LtEq(..) => {
-                self.evaluate_non_top()
-            }
-            Expr::Neq(..) => {
-                self.evaluate_non_top()
-            }
+        if stack.len() != 1 {
+            Err(QueryError::NoOperation)
+        } else {
+            Ok(stack.pop().unwrap())
         }
     }
 }

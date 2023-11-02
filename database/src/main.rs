@@ -86,10 +86,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     db.select(
                         0,
                         0,
-                        Expr::Eq(
-                            Box::new(Expr::Value(Value::Int(1))),
-                            Box::new(Expr::Value(Value::Int(1)))
-                        ))
+                        vec![
+                            Expr::Value(Value::Int(0)),
+                            Expr::Value(Value::Int(0)),
+                            Expr::Eq
+                        ])
                         .await
                         .unwrap()
                         .serialize(&mut rmp::Serializer::new(&mut buffer))

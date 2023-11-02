@@ -6,9 +6,10 @@ pub enum QueryError {
     TypeMismatch,
     OperatorMismatch,
     NoOperation,
-    ColumnValueNotSet,
+    CellValueNotSet,
     TableNotFound,
     SizeMismatch,
+    StackUnderflow,
 }
 
 impl Display for QueryError {
@@ -23,7 +24,7 @@ impl Display for QueryError {
             QueryError::NoOperation => {
                 write!(f, "Query Error: No Operation")
             }
-            QueryError::ColumnValueNotSet => {
+            QueryError::CellValueNotSet => {
                 write!(f, "Query Error: Column Value Not Set")
             }
             QueryError::TableNotFound => {
@@ -31,6 +32,9 @@ impl Display for QueryError {
             }
             QueryError::SizeMismatch => {
                 write!(f, "Query Error: Size Mismatch")
+            }
+            QueryError::StackUnderflow => {
+                write!(f, "Query Error: Stack Underflow")
             }
         }
     }
