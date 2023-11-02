@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    "database",
+    "logger"
+]
+
+default-members = [
+    "database"
+]
