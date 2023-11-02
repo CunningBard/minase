@@ -1,5 +1,69 @@
 use crate::db_core::query_error::QueryError;
 
+macro_rules! evaluate {
+    ($condition:expr, $cell_val:expr, $type_col:ident, $logger:expr, $table:expr, $column:expr, $operation:ident) => {
+        match ExprEvaluator::evaluate($condition, Value::$type_col($cell_val)) {
+            Ok(val) => val,
+            Err(err) => {
+                match err {
+                    QueryError::TypeMismatch => {
+                        $logger.error(
+                            "Type Mismatch".to_string(),
+                            format!("{} on table {}, column {}: type mismatch", stringify!($operation), $table, $column)
+                        ).await;
+                    }
+                    QueryError::OperatorMismatch => {
+                        $logger.error(
+                            "Operator Mismatch".to_string(),
+                            format!("{} on table {}, column {}: operator mismatch", stringify!($operation), $table, $column)
+                        ).await;
+                    }
+                    QueryError::NoOperation => {
+                        $logger.error(
+                            "No Operation".to_string(),
+                            format!("{} on table {}, column {}: no operation", stringify!($operation), $table, $column)
+                        ).await;
+                    }
+                    QueryError::CellValueNotSet => {
+                        $logger.error(
+                            "Cell Value Not Set".to_string(),
+                            format!("{} on table {}, column {}: cell value not set", stringify!($operation), $table, $column)
+                        ).await;
+                    }
+                    QueryError::TableNotFound => {
+                        $logger.error(
+                            "Table Not Found".to_string(),
+                            format!("{} on table {}, column {}: table not found", stringify!($operation), $table, $column)
+                        ).await;
+                    }
+                    QueryError::SizeMismatch => {
+                        $logger.error(
+                            "Size Mismatch".to_string(),
+                            format!("{} on table {}, column {}: size mismatch", stringify!($operation), $table, $column)
+                        ).await;
+                    }
+                    QueryError::StackUnderflow => {
+                        $logger.error(
+                            "Stack Underflow".to_string(),
+                            format!("{} on table {}, column {}: stack underflow", stringify!($operation), $table, $column)
+                        ).await;
+                    }
+                    QueryError::ColumnNotFound => {
+                        $logger.error(
+                            "Column Not Found".to_string(),
+                            format!("{} on table {}, column {}: column not found", stringify!($operation), $table, $column)
+                        ).await;
+                    }
+                }
+
+                return Err(err);
+            }
+        }
+    };
+}
+
+pub(crate) use evaluate;
+
 #[derive(Clone, Debug)]
 pub enum Expr {
     Value(Value),
@@ -254,6 +318,53 @@ pub enum Value {
     Float(f32),
     String(String),
     Bool(bool),
+}
+
+impl Value {
+    pub fn into_int(self) -> Option<i32> {
+        match self {
+            Value::Int(val) => {
+                Some(val)
+            }
+            _ => {
+                None
+            }
+        }
+    }
+
+    pub fn into_float(self) -> Option<f32> {
+        match self {
+            Value::Float(val) => {
+                Some(val)
+            }
+            _ => {
+                None
+            }
+        }
+    }
+
+    pub fn into_string(self) -> Option<String> {
+        match self {
+            Value::String(val) => {
+                Some(val)
+            }
+            _ => {
+                None
+            }
+        }
+    }
+
+    pub fn into_bool(self) -> Option<bool> {
+        match self {
+            Value::Bool(val) => {
+                Some(val)
+            }
+            _ => {
+                None
+            }
+        }
+    }
+
 }
 
 impl ToTypes for Value {
