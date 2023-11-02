@@ -1,6 +1,6 @@
 use logger::Logger;
 use crate::db_core::query_error::QueryError;
-use crate::db_core::values::{Column, Expr, ExprEvaluator, ToTypes, Types, Value};
+use crate::db_core::values::{Column, evaluate, Expr, ExprEvaluator, ToTypes, Types, Value};
 
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -78,57 +78,7 @@ impl<'a > Database<'a > {
         macro_rules! check {
             ($values:expr, $type_col:ident) => {
                 for (row_id, row_value) in $values.iter().enumerate() {
-                    let res = match ExprEvaluator::evaluate(condition.clone(), Value::$type_col(row_value.clone())){
-                        Ok(val) => val,
-                        Err(err) => {
-                            match err {
-                                QueryError::TypeMismatch => {
-                                    self.logger.error(
-                                        "Type Mismatch".to_string(),
-                                        format!("select on table {}, column {}: type mismatch", table, column_target)
-                                    ).await;
-                                }
-                                QueryError::OperatorMismatch => {
-                                    self.logger.error(
-                                        "Operator Mismatch".to_string(),
-                                        format!("select on table {}, column {}: operator mismatch", table, column_target)
-                                    ).await;
-                                }
-                                QueryError::NoOperation => {
-                                    self.logger.error(
-                                        "No Operation".to_string(),
-                                        format!("select on table {}, column {}: no operation", table, column_target)
-                                    ).await;
-                                }
-                                QueryError::CellValueNotSet => {
-                                    self.logger.error(
-                                        "Cell Value Not Set".to_string(),
-                                        format!("select on table {}, column {}: cell value not set", table, column_target)
-                                    ).await;
-                                }
-                                QueryError::TableNotFound => {
-                                    self.logger.error(
-                                        "Table Not Found".to_string(),
-                                        format!("select on table {}, column {}: table not found", table, column_target)
-                                    ).await;
-                                }
-                                QueryError::SizeMismatch => {
-                                    self.logger.error(
-                                        "Size Mismatch".to_string(),
-                                        format!("select on table {}, column {}: size mismatch", table, column_target)
-                                    ).await;
-                                }
-                                QueryError::StackUnderflow => {
-                                    self.logger.error(
-                                        "Stack Underflow".to_string(),
-                                        format!("select on table {}, column {}: stack underflow", table, column_target)
-                                    ).await;
-                                }
-                            }
-
-                            return Err(err);
-                        }
-                    };
+                    let res = evaluate!(condition.clone(), row_value.clone(), $type_col, self.logger, table, column_target, select);
                     if let Value::Bool(true) = res {
                         row_ids.push(row_id);
                     }
@@ -260,16 +210,16 @@ impl<'a > Database<'a > {
                 Some(column) => {
                     match column {
                         Column::Int(int_vals) => {
-                            check!(id, int_vals, val, Int);
+                            check!(id, int_vals, val, Int)
                         }
                         Column::Float(float_vals) => {
-                            check!(id, float_vals, val, Float);
+                            check!(id, float_vals, val, Float)
                         }
                         Column::String(string_vals) => {
-                            check!(id, string_vals, val, String);
+                            check!(id, string_vals, val, String)
                         }
                         Column::Bool(bool_vals) => {
-                            check!(id, bool_vals, val, Bool);
+                            check!(id, bool_vals, val, Bool)
                         }
                     }
                 }
@@ -287,5 +237,192 @@ impl<'a > Database<'a > {
         Ok(())
     }
 
-    pub
+    pub async fn update(
+        &mut self,
+        table: usize,
+        condition_column: usize,
+        target_column: usize,
+        value: Value,
+
+        #[allow(unused_variables)]
+        condition: Vec<Expr>
+    ) -> Result<(), QueryError> {
+        let target_table = match self.tables.get_mut(table){
+            Some(table_obj) => {
+                if table_obj.columns.len() < condition_column || table_obj.columns.len() < target_column {
+                    self.logger.error(
+                        "Column Not Found".to_string(),
+                        format!("column {} not found in table {}", condition_column, table)
+                    ).await;
+
+                    return Err(QueryError::ColumnNotFound);
+                }
+                if table_obj.column_types[target_column] != value.to_types() {
+                    self.logger.error(
+                        "Type Mismatch".to_string(),
+                        format!("update on table {}: given value type is not the same as column type", table)
+                    ).await;
+
+                    return Err(QueryError::TypeMismatch);
+                }
+
+                table_obj
+            }
+            None => {
+                self.logger.error(
+                    "Table Not Found".to_string(),
+                    format!("table {} not found", table)
+                ).await;
+
+                return Err(QueryError::TableNotFound);
+            }
+        };
+
+        #[allow(unused_mut)]
+        let mut row_ids: Vec<usize> = Vec::new();
+
+        macro_rules! check {
+            ($values:expr, $type_col:ident) => {
+                for (row_id, row_value) in $values.iter().enumerate() {
+                    let res = evaluate!(condition.clone(), row_value.clone(), $type_col, self.logger, table, condition_column, update);
+                    if let Value::Bool(true) = res {
+                        row_ids.push(row_id);
+                    }
+                }
+            };
+        }
+
+        match target_table.columns.get_mut(condition_column) {
+            Some(column) => {
+                match column {
+                    Column::Int(values) => {
+                        check!(values, Int)
+                    }
+                    Column::Float(values) => {
+                        check!(values, Float)
+                    }
+                    Column::String(values) => {
+                        check!(values, String)
+                    }
+                    Column::Bool(values) => {
+                        check!(values, Bool)
+                    }
+                }
+            }
+            None => {}
+        }
+
+
+        match target_table.columns.get_mut(target_column).unwrap() {
+            Column::Int(int_col) => {
+                for row in &row_ids {
+                    int_col[*row] = value.clone().into_int().unwrap();
+                }
+            }
+            Column::Float(float_col) => {
+                for row in &row_ids {
+                    float_col[*row] = value.clone().into_float().unwrap();
+                }
+            }
+            Column::String(string_col) => {
+                for row in &row_ids {
+                    string_col[*row] = value.clone().into_string().unwrap();
+                }
+            }
+            Column::Bool(bool_col) => {
+                for row in &row_ids {
+                    bool_col[*row] = value.clone().into_bool().unwrap();
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn delete(&mut self, table: usize, column: usize, condition: Vec<Expr>) -> Result<(), QueryError> {
+        let target_table = match self.tables.get_mut(table){
+            Some(table_obj) => {
+                if table_obj.columns.len() < column {
+                    self.logger.error(
+                        "Column Not Found".to_string(),
+                        format!("column {} not found in table {}", column, table)
+                    ).await;
+
+                    return Err(QueryError::ColumnNotFound);
+                }
+
+                table_obj
+            }
+            None => {
+                self.logger.error(
+                    "Table Not Found".to_string(),
+                    format!("table {} not found", table)
+                ).await;
+
+                return Err(QueryError::TableNotFound);
+            }
+        };
+
+        #[allow(unused_mut)]
+        let mut row_ids: Vec<usize> = Vec::new();
+
+        macro_rules! check {
+            ($values:expr, $type_col:ident) => {
+                for (row_id, row_value) in $values.iter().enumerate() {
+                    let res = evaluate!(condition.clone(), row_value.clone(), $type_col, self.logger, table, column, delete);
+                    if let Value::Bool(true) = res {
+                        row_ids.push(row_id);
+                    }
+                }
+            };
+        }
+
+        match target_table.columns.get_mut(column) {
+            Some(column) => {
+                match column {
+                    Column::Int(values) => {
+                        check!(values, Int)
+                    }
+                    Column::Float(values) => {
+                        check!(values, Float)
+                    }
+                    Column::String(values) => {
+                        check!(values, String)
+                    }
+                    Column::Bool(values) => {
+                        check!(values, Bool)
+                    }
+                }
+            }
+            None => {}
+        }
+
+        row_ids.reverse();
+
+        for column in target_table.columns.iter_mut() {
+            match column {
+                Column::Int(int_col) => {
+                    for row in &row_ids {
+                        int_col.remove(*row);
+                    }
+                }
+                Column::Float(float_col) => {
+                    for row in &row_ids {
+                        float_col.remove(*row);
+                    }
+                }
+                Column::String(string_col) => {
+                    for row in &row_ids {
+                        string_col.remove(*row);
+                    }
+                }
+                Column::Bool(bool_col) => {
+                    for row in &row_ids {
+                        bool_col.remove(*row);
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
