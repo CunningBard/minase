@@ -56,28 +56,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             loop {
                 // Read data from the socket
-                match socket.read(&mut size_buffer).await {
-                    // socket closed
-                    Ok(n) if n == 0 => return,
-                    Ok(n) => n,
-                    Err(e) => {
-                        println!("failed to read from socket; err = {:?}", e);
-                        return;
-                    }
-                };
+                socket.read(&mut size_buffer).await.unwrap();
 
                 let size = u32::from_le_bytes(size_buffer);
                 buffer = vec![0; size as usize];
 
-                let n = match socket.read(&mut buffer).await {
-                    // socket closed
-                    Ok(n) if n == 0 => return,
-                    Ok(n) => n,
-                    Err(e) => {
-                        println!("failed to read from socket; err = {:?}", e);
-                        return;
-                    }
-                };
+                let n = socket.read(&mut buffer).await.unwrap();
+                if n == 0 { return; }
 
                 let message = String::from_utf8(buffer[..n].to_owned()).unwrap();
 
@@ -87,7 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         0,
                         0,
                         vec![
-                            Expr::Value(Value::Int(0)),
+                            Expr::Cell,
                             Expr::Value(Value::Int(0)),
                             Expr::Eq
                         ])

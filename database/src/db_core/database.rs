@@ -62,15 +62,23 @@ impl<'a > Database<'a > {
         ).await;
     }
 
-    pub async fn select(&mut self, table: usize, column_target: usize, condition: Vec<Expr>) -> Result<Table, QueryError> {
-        let mut row_id = Vec::new();
+    pub async fn select(
+        &mut self,
+        table: usize,
+        column_target: usize,
+
+        #[allow(unused_variables)]
+        condition: Vec<Expr>
+
+    ) -> Result<Table, QueryError> {
+        let mut row_ids: Vec<usize> = Vec::new();
 
         let target_table = self.get_table(table).await?;
 
         macro_rules! check {
             ($values:expr, $type_col:ident) => {
-                for (val_id, value) in $values.iter().enumerate() {
-                    let res = match ExprEvaluator::evaluate(condition.clone(), Value::$type_col(value.clone())){
+                for (row_id, row_value) in $values.iter().enumerate() {
+                    let res = match ExprEvaluator::evaluate(condition.clone(), Value::$type_col(row_value.clone())){
                         Ok(val) => val,
                         Err(err) => {
                             match err {
@@ -122,7 +130,7 @@ impl<'a > Database<'a > {
                         }
                     };
                     if let Value::Bool(true) = res {
-                        row_id.push(val_id);
+                        row_ids.push(row_id);
                     }
                 }
             };
@@ -155,7 +163,7 @@ impl<'a > Database<'a > {
             match column {
                 Column::Int(int_col) => {
                     let mut values = vec![];
-                    for row in &row_id {
+                    for row in &row_ids {
                         let value = int_col.get(*row).unwrap();
                         values.push(value.clone())
                     }
@@ -163,7 +171,7 @@ impl<'a > Database<'a > {
                 }
                 Column::Float(float_col) => {
                     let mut values = vec![];
-                    for row in &row_id {
+                    for row in &row_ids {
                         let value = float_col.get(*row).unwrap();
                         values.push(value.clone())
                     }
@@ -171,7 +179,7 @@ impl<'a > Database<'a > {
                 }
                 Column::String(string_col) => {
                     let mut values = vec![];
-                    for row in &row_id {
+                    for row in &row_ids {
                         let value = string_col.get(*row).unwrap();
                         values.push(value.clone())
                     }
@@ -179,7 +187,7 @@ impl<'a > Database<'a > {
                 }
                 Column::Bool(bool_col) => {
                     let mut values = vec![];
-                    for row in &row_id {
+                    for row in &row_ids {
                         let value = bool_col.get(*row).unwrap();
                         values.push(value.clone())
                     }
@@ -199,7 +207,7 @@ impl<'a > Database<'a > {
                 "Select query executed on table {} with column {:?} and {} rows returned",
                 table,
                 column_target,
-                row_id.len()
+                row_ids.len()
             )
         ).await;
 
@@ -278,4 +286,6 @@ impl<'a > Database<'a > {
         ).await;
         Ok(())
     }
+
+    pub
 }
