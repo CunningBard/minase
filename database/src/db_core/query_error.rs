@@ -10,6 +10,7 @@ pub enum QueryError {
     TableNotFound,
     SizeMismatch,
     StackUnderflow,
+    ColumnNotFound
 }
 
 impl Display for QueryError {
@@ -35,6 +36,9 @@ impl Display for QueryError {
             }
             QueryError::StackUnderflow => {
                 write!(f, "Query Error: Stack Underflow")
+            }
+            QueryError::ColumnNotFound => {
+                write!(f, "Query Error: Column Not Found")
             }
         }
     }
