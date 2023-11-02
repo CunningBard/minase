@@ -73,7 +73,23 @@ impl<'a > Database<'a > {
     ) -> Result<Table, QueryError> {
         let mut row_ids: Vec<usize> = Vec::new();
 
-        let target_table = self.get_table(table).await?;
+        let target_table = match self.get_table(table).await {
+            Ok(table_obj) => {
+                if table_obj.columns.len() < column_target {
+                    self.logger.error(
+                        "Column Not Found".to_string(),
+                        format!("column {} not found in table {}", column_target, table)
+                    ).await;
+
+                    return Err(QueryError::ColumnNotFound);
+                }
+
+                table_obj
+            }
+            Err(err) => {
+                return Err(err);
+            }
+        };
 
         macro_rules! check {
             ($values:expr, $type_col:ident) => {
@@ -339,8 +355,8 @@ impl<'a > Database<'a > {
     }
 
     pub async fn delete(&mut self, table: usize, column: usize, condition: Vec<Expr>) -> Result<(), QueryError> {
-        let target_table = match self.tables.get_mut(table){
-            Some(table_obj) => {
+        let mut target_table = match self.get_table(table).await {
+            Ok(table_obj) => {
                 if table_obj.columns.len() < column {
                     self.logger.error(
                         "Column Not Found".to_string(),
@@ -352,13 +368,8 @@ impl<'a > Database<'a > {
 
                 table_obj
             }
-            None => {
-                self.logger.error(
-                    "Table Not Found".to_string(),
-                    format!("table {} not found", table)
-                ).await;
-
-                return Err(QueryError::TableNotFound);
+            Err(err) => {
+                return Err(err);
             }
         };
 
@@ -400,22 +411,22 @@ impl<'a > Database<'a > {
 
         for column in target_table.columns.iter_mut() {
             match column {
-                Column::Int(int_col) => {
+                Column::Int(ref mut int_col) => {
                     for row in &row_ids {
                         int_col.remove(*row);
                     }
                 }
-                Column::Float(float_col) => {
+                Column::Float(ref mut float_col) => {
                     for row in &row_ids {
                         float_col.remove(*row);
                     }
                 }
-                Column::String(string_col) => {
+                Column::String(ref mut string_col) => {
                     for row in &row_ids {
                         string_col.remove(*row);
                     }
                 }
-                Column::Bool(bool_col) => {
+                Column::Bool(ref mut bool_col) => {
                     for row in &row_ids {
                         bool_col.remove(*row);
                     }
