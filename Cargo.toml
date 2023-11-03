@@ -1,9 +1,11 @@
 [workspace]
 members = [
-    "database",
-    "logger"
+    "minase",
+    "logger",
+    "client",
+    "server",
 ]
 
 default-members = [
-    "database"
+    "server"
 ]
