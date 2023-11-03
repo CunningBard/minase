@@ -1,8 +1,9 @@
+use serde_derive::{Deserialize, Serialize};
 use crate::db_core::query_error::QueryError;
 
 macro_rules! evaluate {
-    ($condition:expr, $cell_val:expr, $type_col:ident, $logger:expr, $table:expr, $column:expr, $operation:ident) => {
-        match ExprEvaluator::evaluate($condition, Value::$type_col($cell_val)) {
+    ($expr:expr, $cell_val:expr, $type_col:ident, $logger:expr, $table:expr, $column:expr, $operation:ident) => {
+        match ExprEvaluator::evaluate($expr, Value::$type_col($cell_val)) {
             Ok(val) => val,
             Err(err) => {
                 match err {
@@ -52,6 +53,12 @@ macro_rules! evaluate {
                         $logger.error(
                             "Column Not Found".to_string(),
                             format!("{} on table {}, column {}: column not found", stringify!($operation), $table, $column)
+                        ).await;
+                    }
+                    QueryError::InvalidQuery => {
+                        $logger.error(
+                            "Invalid Query".to_string(),
+                            format!("{} on table {}, column {}: invalid query", stringify!($operation), $table, $column)
                         ).await;
                     }
                 }
