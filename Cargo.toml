@@ -4,6 +4,7 @@ members = [
     "logger",
     "client",
     "server",
+    "driver"
 ]
 
 default-members = [
