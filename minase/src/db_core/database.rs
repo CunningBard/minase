@@ -13,7 +13,7 @@ pub struct Table {
 #[derive(Debug)]
 pub struct Database<'a > {
     tables: Vec<Table>,
-    logger: &'a mut Logger,
+    pub logger: &'a mut Logger,
 }
 
 impl<'a > Database<'a > {
@@ -38,6 +38,10 @@ impl<'a > Database<'a > {
                 Err(QueryError::TableNotFound)
             }
         }
+    }
+
+    pub async fn select_table(&mut self, id: usize) -> Result<Table, QueryError> {
+       Ok(self.get_table(id).await?.clone())
     }
 
     pub async fn get_table_with_column_check(&mut self, id: usize, column: usize) -> Result<&mut Table, QueryError> {
@@ -65,8 +69,15 @@ impl<'a > Database<'a > {
         }
     }
 
-    pub async fn add_table(&mut self, columns: Vec<Column>) {
-        let mut column_types = columns.iter().map(|col| col.to_types()).collect::<Vec<Types>>();
+    pub async fn add_table(&mut self, column_types: Vec<Types>) {
+        let columns = column_types.iter().map(|col| {
+            match col {
+                Types::Int => Column::Int(Vec::new()),
+                Types::Float => Column::Float(Vec::new()),
+                Types::String => Column::String(Vec::new()),
+                Types::Bool => Column::Bool(Vec::new()),
+            }
+        }).collect::<Vec<Column>>();
 
         self.tables.push(Table {
             columns,
@@ -79,13 +90,23 @@ impl<'a > Database<'a > {
         ).await;
     }
 
-    pub async fn drop_table(&mut self, id: usize) {
+    pub async fn drop_table(&mut self, id: usize) -> Result<(), QueryError>{
+        if self.tables.len() < id {
+            self.logger.error(
+                "Table Not Found".to_string(),
+                format!("table {} not found", id)
+            ).await;
+
+            return Err(QueryError::TableNotFound);
+        }
         self.tables.remove(id);
 
         self.logger.info(
             "Table Dropped".to_string(),
             format!("dropped table {} from database", id)
         ).await;
+
+        Ok(())
     }
 
     pub async fn select(
@@ -281,7 +302,7 @@ impl<'a > Database<'a > {
         #[allow(unused_variables)]
         condition: Vec<Expr>
     ) -> Result<(), QueryError> {
-        let mut target_table = self.get_table_with_column_check(table, condition_column).await?;
+        let target_table = self.get_table_with_column_check(table, condition_column).await?;
 
         #[allow(unused_mut)]
         let mut row_ids: Vec<usize> = Vec::new();
@@ -372,7 +393,7 @@ impl<'a > Database<'a > {
         table: usize,
         targets: Vec<(usize, Vec<Expr>)>,
     ) -> Result<(), QueryError> {
-        let mut target_table = self.get_table_with_column_check(table, 0).await?;
+        let target_table = self.get_table_with_column_check(table, 0).await?;
 
         for (column_id, value) in targets {
             match target_table.columns.get_mut(column_id) {
@@ -424,7 +445,7 @@ impl<'a > Database<'a > {
         #[allow(unused_variables)]
         condition: Vec<Expr>
     ) -> Result<(), QueryError> {
-        let mut target_table = self.get_table_with_column_check(table, column).await?;
+        let target_table = self.get_table_with_column_check(table, column).await?;
 
         #[allow(unused_mut)]
         let mut row_ids: Vec<usize> = Vec::new();
@@ -492,5 +513,8 @@ impl<'a > Database<'a > {
 
     pub async fn logger_flush(&mut self) {
         self.logger.flush_buffer().await;
+    }
+    pub async fn logger_info(&mut self, title: String, message: String) {
+        self.logger.info(title, message).await;
     }
 }

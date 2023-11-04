@@ -71,7 +71,7 @@ macro_rules! evaluate {
 
 pub(crate) use evaluate;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum Expr {
     Value(Value),
     Cell,
@@ -319,7 +319,7 @@ pub trait ToTypes {
     fn to_types(&self) -> Types;
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum Value {
     Int(i32),
     Float(f32),

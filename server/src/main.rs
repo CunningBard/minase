@@ -1,16 +1,12 @@
 extern crate serde;
-#[macro_use]
-extern crate serde_derive;
 extern crate rmp_serde as rmp;
 
-use std::io::Write;
-use rmp::Deserializer;
+use rmp::{Deserializer, Serializer};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use minase::db_core::database::{Database, Table};
-use minase::db_core::query_error::QueryError;
-use minase::db_core::values::{Column, Expr, Value};
+use minase::db_core::database::{Database};
+use minase::db_core::query::Query;
 
 // let mut buffer = vec![];
 // result.serialize(&mut rmp::Serializer::new(&mut buffer))?;
@@ -24,44 +20,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind("127.0.0.1:8080").await?;
 
 
-
     // logger.info("Database Exiting".to_string(), "Execution has ended".to_string()).await;
     // logger.flush_buffer().await;
 
     loop {
+        let mut logger = logger::Logger::new().await;
+
         let (mut socket, _) = listener.accept().await?;
 
-
-        tokio::spawn(async move {
+        let res = tokio::spawn(async move {
             let mut size_buffer = [0; 4];
-            let mut buffer = vec![];
-
-            let mut logger = logger::Logger::new().await;
+            let mut buffer;
 
             logger.info("Database Starting".to_string(), "Execution has started".to_string()).await;
 
             let mut db = Database::new(
                 &mut logger
             );
-
-            db.add_table(
-                vec![
-                    Column::Int(vec![]),
-                    Column::String(vec![]),
-                ]
-            ).await;
-
-            for i in 0..100 {
-                db.insert(
-                    0,
-                    vec![
-                        Value::Int(i),
-                        Value::String(format!("Person {}", i)),
-                    ]
-                ).await.expect("What the fuck?");
-            }
-
-            // println!("table: {:#?}", db);
 
             // flush stdout
             // std::io::stdout().flush();
@@ -71,68 +46,157 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Read data from the socket
                 socket.read(&mut size_buffer).await.unwrap();
 
-                let size = u32::from_le_bytes(size_buffer);
+                // println!("{:?}", err);
+
+                let size = u32::from_be_bytes(size_buffer);
                 buffer = vec![0; size as usize];
 
                 let n = socket.read(&mut buffer).await.unwrap();
-                if n == 0 { return; }
 
-                let message = String::from_utf8(buffer[..n].to_owned()).unwrap();
-
-                println!("Received: {}", message);
-
-                let mut split = message.split_whitespace().collect::<Vec<&str>>();
-
-                macro_rules! invalid_query {
-                    () => {
-                        let message = QueryError::InvalidQuery.to_string();
-                        let size = message.len() as u32;
-                        let mut size_buffer = size.to_be_bytes();
-                        socket.write(&mut size_buffer).await.unwrap();
-                        socket.write(message.as_bytes()).await.unwrap();
-                        break;
-                    }
+                if n == 0 {
+                    db.logger.error("Connection Error".to_string(), "Connection has been closed".to_string()).await;
+                    db.logger_flush().await;
+                    return Err(());
                 }
 
 
-                if split.len() == 0 {
-                    invalid_query!();
-                }
+                let query = Query::deserialize(
+                    &mut Deserializer::new(
+                        &buffer[..]
+                    )
+                ).unwrap();
 
-                match split[0] {
-                    "select" => {
-                        /*
-                        Two cases:
-                            select [where <condition: expr>] from <table: number> <column: number>
-                            select table <table: number>
-                        */
+                db.logger_info("Query Received".to_string(), format!("{:?}", query)).await;
 
-                        match split[1] {
-                            "table" => {
-                                let table_id = split[2].parse::<usize>().unwrap();
-                                // println!("Table ID: {}", table_id);
-                                let table = db.get_table(table_id).await.unwrap();
 
-                                // println!("Table: {:#?}", table);
+                match query {
+                    Query::Select { table, columns, condition } => {
+                        let mut buffer = vec![];
 
-                                let mut buffer = vec![];
-                                table.serialize(&mut rmp::Serializer::new(&mut buffer)).unwrap();
+                        let table = db.select(table, columns, condition).await;
+                        table.serialize(
+                            &mut Serializer::new(
+                                &mut buffer
+                            )
+                        ).unwrap();
 
-                                let size = buffer.len() as u32;
-                                let mut size_buffer = size.to_be_bytes();
-                                socket.write(&mut size_buffer).await.unwrap();
-                                socket.write(&mut buffer).await.unwrap();
-                            }
-                            _ => {
-                                invalid_query!();
-                            }
-                        }
+                        let size = (buffer.len() as u32).to_be_bytes();
+                        socket.write_all(&size[..]).await.unwrap();
+                        socket.write_all(&buffer[..]).await.unwrap();
                     }
-                    _ => {
-                        invalid_query!();
+                    Query::SelectTable { table } => {
+                        let mut buffer = vec![];
+
+                        let table = db.select_table(table).await;
+                        table.serialize(
+                            &mut Serializer::new(
+                                &mut buffer
+                            )
+                        ).unwrap();
+
+                        let size = (buffer.len() as u32).to_be_bytes();
+                        socket.write_all(&size[..]).await.unwrap();
+                        socket.write_all(&buffer[..]).await.unwrap();
+                    }
+                    Query::Insert { table, values } => {
+                        let mut buffer = vec![];
+
+                        let res = db.insert(table, values).await;
+
+                        res.serialize(
+                            &mut Serializer::new(
+                                &mut buffer
+                            )
+                        ).unwrap();
+
+                        let size = (buffer.len() as u32).to_be_bytes();
+                        socket.write_all(&size[..]).await.unwrap();
+                        socket.write_all(&buffer[..]).await.unwrap();
+                    }
+                    Query::Update { table, condition_column, targets, condition } => {
+                        let mut buffer = vec![];
+
+                        let res = db.update(table, condition_column, targets, condition).await;
+
+                        res.serialize(
+                            &mut Serializer::new(
+                                &mut buffer
+                            )
+                        ).unwrap();
+
+                        let size = (buffer.len() as u32).to_be_bytes();
+                        socket.write_all(&size[..]).await.unwrap();
+                        socket.write_all(&buffer[..]).await.unwrap();
+                    }
+                    Query::UpdateAll { table, targets } => {
+                        let mut buffer = vec![];
+
+                        let res = db.update_all(table, targets).await;
+
+                        res.serialize(
+                            &mut Serializer::new(
+                                &mut buffer
+                            )
+                        ).unwrap();
+
+                        let size = (buffer.len() as u32).to_be_bytes();
+                        socket.write_all(&size[..]).await.unwrap();
+                        socket.write_all(&buffer[..]).await.unwrap();
+                    }
+                    Query::Delete { table, column, condition } => {
+                        let mut buffer = vec![];
+
+                        let res = db.delete(table, column, condition).await;
+
+                        res.serialize(
+                            &mut Serializer::new(
+                                &mut buffer
+                            )
+                        ).unwrap();
+
+                        let size = (buffer.len() as u32).to_be_bytes();
+                        socket.write_all(&size[..]).await.unwrap();
+                        socket.write_all(&buffer[..]).await.unwrap();
+                    }
+                    Query::AddTable { columns } => {
+                        db.add_table(columns).await;
+                    }
+                    Query::DropTable { id } => {
+                        let mut buffer = vec![];
+
+                        let res = db.drop_table(id).await;
+
+                        res.serialize(
+                            &mut Serializer::new(
+                                &mut buffer
+                            )
+                        ).unwrap();
+
+                        let size = (buffer.len() as u32).to_be_bytes();
+                        socket.write_all(&size[..]).await.unwrap();
+                        socket.write_all(&buffer[..]).await.unwrap();
+                    }
+                    Query::Exit => {
+                        db.logger.info("Database Exiting".to_string(), "Execution has ended".to_string()).await;
+                        db.logger.flush_buffer().await;
+                        return Ok(());
+                    }
+                    Query::FlushLogs => {
+                        db.logger_flush().await;
                     }
                 }
             }
         });
-    }
+
+        match res.await {
+            Ok(_) => {
+                break
+            }
+            Err(_) => {
+                break
+            }
+        }
+    };
+
+    Ok(())
 }
