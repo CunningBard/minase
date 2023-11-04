@@ -1,0 +1,5 @@
+INFO Database Starting: Execution has started
+INFO Query Received: SelectTable { table: 0 }
+ERROR! Table Not Found: table 0 not found
+INFO Query Received: Exit
+INFO Database Exiting: Execution has ended
