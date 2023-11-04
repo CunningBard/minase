@@ -8,7 +8,13 @@ pub struct Logger {
 
 impl Logger {
     pub async fn new() -> Self {
-        let file = File::create("log.txt").await.unwrap();
+        let file = File::options()
+            .create(true)
+            .append(true)
+            .open("minase.log")
+            .await.
+            unwrap();
+
         let writer = BufWriter::new(file);
         Logger { writer }
     }
